@@ -4,35 +4,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0b1120">
-    <title>Echo AI - Audio Transcription</title>
+    <meta name="theme-color" content="#b91c1c">
+    <title>Bhagya Achievers | AI Transcription</title>
     <link rel="stylesheet" href="./style.css">
     <link rel="manifest" href="./manifest.json">
 </head>
 <body>
 
+    <nav class="navbar">
+        <div class="brand">Bhagya <span>Achievers</span></div>
+        <div class="nav-label">AI Workspace</div>
+    </nav>
+
     <main class="container">
 
         <header>
-            <div class="logo">ECHO AI</div>
-            <h1>Audio Transcription Agent</h1>
-            <p>Free. Private. No API charges.</p>
-            <span class="status-badge">
-                Local AI Processing
-            </span>
+            <span class="status-badge">LOCAL AI PROCESSING</span>
+            <h1>AI Audio <span>Transcription</span></h1>
+            <p>Transform your audio recordings into text effortlessly.</p>
+
+            <div class="benefits">
+                <span>✓ Free Transcription</span>
+                <span>✓ Private Processing</span>
+                <span>✓ No Monthly Quota</span>
+            </div>
         </header>
 
         <section class="upload-card">
 
-            <h2>Upload Audio</h2>
+            <h2>Upload Audio Recording</h2>
 
             <label for="audioFile" class="upload-area" id="dropZone">
-                <span class="upload-icon">&#9729;</span>
-                <strong>Choose or drop your audio file</strong>
-                <p>MP3, WAV, M4A, OGG and more</p>
+                <span class="upload-icon">↑</span>
+                <strong>Drag and drop your audio file</strong>
+                <p>Supports MP3, WAV, M4A, OGG and FLAC</p>
+                <span class="browse-btn">Browse Audio File</span>
+
                 <input type="file" id="audioFile"
-                       accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"
-                       hidden>
+                    accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"
+                    hidden>
             </label>
 
             <p id="fileName">No file selected</p>
@@ -52,11 +62,11 @@
                 </div>
 
                 <div class="field">
-                    <label for="model">AI Model</label>
+                    <label for="model">Transcription Accuracy</label>
                     <select id="model">
-                        <option value="tiny">Tiny - Faster</option>
-                        <option value="base" selected>Base - Balanced</option>
-                        <option value="small">Small - Higher Accuracy</option>
+                        <option value="tiny">Fast Processing</option>
+                        <option value="base" selected>Balanced</option>
+                        <option value="small">Higher Accuracy</option>
                     </select>
                 </div>
 
@@ -85,8 +95,7 @@
             </div>
 
             <textarea id="transcription"
-                placeholder="Your transcription will appear here...">
-            </textarea>
+                placeholder="Your generated transcription will appear here..."></textarea>
 
             <div class="actions">
                 <button id="copyBtn">Copy Text</button>
@@ -98,9 +107,9 @@
         </section>
 
         <footer>
-            <p>Private processing on your device</p>
-            <p>No paid API | No monthly transcription quota</p>
-            <p>Powered by open-source Whisper AI</p>
+            <strong>Bhagya Achievers AI Workspace</strong>
+            <p>Powered by Open-Source Artificial Intelligence</p>
+            <p>No API Charges | No Subscription | Private Processing</p>
         </footer>
 
     </main>

@@ -1,44 +1,95 @@
 
+const BASE = "https://generativelanguage.googleapis.com";
+const MODEL = "gemini-3.8-flash";
+
+function reply(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store"
+    }
+  });
+}
+
+export async function onRequestGet() {
+  return reply({
+    success: true,
+    service: "BA Transcription API",
+    model: MODEL,
+    status: "Backend is active"
+  });
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  const reply = (data, status = 200) =>
-    Response.json(data, {
-      status,
-      headers: { "Cache-Control": "no-store" }
-    });
+  const key = env.GEMINI_API_KEY;
 
-if (!response.ok) {
-  return reply({
-    error: result.error?.message ||
-      `Gemini API request failed (${response.status}).`
-  }, 502);
-}
+  if (!key) {
+    return reply({
+      error: "GEMINI_API_KEY is missing in Cloudflare."
+    }, 500);
+  }
 
-  let uploadedFile;
+  const headers = {
+    "x-goog-api-key": key
+  };
+
+  let uploadedFile = null;
+  let step = "Initialization";
+
+  async function readResponse(response) {
+    const raw = await response.text();
+
+    let data;
+
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      throw new Error(
+        `Google returned a non-JSON response (${response.status}).`
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Google API ${response.status}: ` +
+        (data.error?.message || "Request failed.")
+      );
+    }
+
+    return data;
+  }
 
   try {
+
+    step = "Reading recording";
+
     const form = await request.formData();
     const audio = form.get("audio");
 
     if (!audio || typeof audio.arrayBuffer !== "function" || !audio.size) {
       return reply({
-        error: "Please upload an audio file."
+        error: "Please upload an audio recording."
       }, 400);
     }
 
     if (audio.size > 90 * 1024 * 1024) {
       return reply({
-        error: "File exceeds the 90 MB upload limit."
+        error: "Recording exceeds the 90 MB limit."
       }, 413);
     }
 
-    const extension = audio.name.split(".").pop().toLowerCase();
+    const extension = audio.name
+      .split(".")
+      .pop()
+      .toLowerCase();
 
     const formats = {
-      mp3: "audio/mpeg",
+      mp3: "audio/mp3",
       mp4: "video/mp4",
-      m4a: "audio/mp4",
+      m4a: "audio/m4a",
       wav: "audio/wav",
       ogg: "audio/ogg",
       flac: "audio/flac",
@@ -50,34 +101,131 @@ if (!response.ok) {
 
     if (!mimeType) {
       return reply({
-        error: "Unsupported file format."
+        error: "Unsupported recording format."
       }, 400);
     }
 
-    const apiHeaders = {
-      "x-goog-api-key": env.GEMINI_API_KEY
-    };
+    // Upload using Gemini Files API.
+
+    step = "Starting Google file upload";
+
+    const start = await fetch(
+      `${BASE}/upload/v1beta/files`,
+      {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+          "X-Goog-Upload-Protocol": "resumable",
+          "X-Goog-Upload-Command": "start",
+          "X-Goog-Upload-Header-Content-Length":
+            String(audio.size),
+          "X-Goog-Upload-Header-Content-Type":
+            mimeType
+        },
+        body: JSON.stringify({
+          file: {
+            display_name: "BA Call Recording"
+          }
+        })
+      }
+    );
+
+    if (!start.ok) {
+      await readResponse(start);
+    }
+
+    const uploadUrl = start.headers.get(
+      "X-Goog-Upload-URL"
+    );
+
+    if (!uploadUrl) {
+      throw new Error("Google upload URL not received.");
+    }
+
+    step = "Uploading recording";
+
+    const uploadResponse = await fetch(
+      uploadUrl,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": mimeType,
+          "Content-Length": String(audio.size),
+          "X-Goog-Upload-Offset": "0",
+          "X-Goog-Upload-Command": "upload, finalize"
+        },
+        body: audio
+      }
+    );
+
+    const uploadResult = await readResponse(
+      uploadResponse
+    );
+
+    uploadedFile = uploadResult.file;
+
+    if (!uploadedFile?.name) {
+      throw new Error("Google did not return a file.");
+    }
+
+    // Wait until Google finishes processing.
+
+    step = "Preparing recording";
+
+    for (let i = 0; i < 40; i++) {
+
+      if (uploadedFile.state === "ACTIVE") {
+        break;
+      }
+
+      if (uploadedFile.state === "FAILED") {
+        throw new Error(
+          "Google could not process this recording."
+        );
+      }
+
+      await new Promise(resolve =>
+        setTimeout(resolve, 2000)
+      );
+
+      const check = await fetch(
+        `${BASE}/v1beta/${uploadedFile.name}`,
+        { headers }
+      );
+
+      uploadedFile = await readResponse(check);
+    }
+
+    if (uploadedFile.state !== "ACTIVE") {
+      throw new Error(
+        "Recording preparation timed out."
+      );
+    }
+
+    // Transcription instructions.
 
     const prompt = `
-You are a professional audio transcription engine
-for Bhagya Achievers.
+You are the professional audio transcription
+engine for Bhagya Achievers.
 
-Transcribe the complete recording from beginning to end.
+Transcribe the entire recording accurately
+from beginning to end.
 
-STRICT RULES:
+REQUIREMENTS:
 
-1. Preserve the actual spoken words.
-2. Do not summarize or translate the conversation.
-3. Preserve Hindi, English and Hinglish.
-4. Identify speakers consistently as Speaker A,
-   Speaker B, or additional speakers if necessary.
-5. Include a timestamp at every speaker turn.
-6. Use timestamps relative to the original recording.
-7. Never invent dialogue or repeat sentences
-   that were not actually spoken.
-8. Mark unclear words as [Inaudible].
-9. Do not add sales feedback, scores or analysis.
-10. Return plain text only.
+- Preserve the actual spoken conversation.
+- Automatically detect Hindi, English and Hinglish.
+- Preserve the original spoken language.
+- Do not translate or summarize.
+- Identify speakers consistently.
+- Add timestamps at every speaker turn.
+- Use timestamps relative to the original recording.
+- Do not invent dialogue.
+- Do not repeat unspoken sentences.
+- Mark unclear sections as [Inaudible].
+- Do not add feedback, analysis or scores.
+- Return plain text only.
 
 OUTPUT FORMAT:
 
@@ -85,172 +233,48 @@ Speaker A (00:02)
 Hello, good morning.
 
 Speaker B (00:05)
-Yes, good morning.
+Yes, good morning ma'am.
 
-Continue this format for the entire recording.
+Speaker A (00:08)
+Aap kaunsa attempt target kar rahe ho?
+
+Continue until the end of the recording.
 `;
 
-    let mediaPart;
-
-    if (audio.size <= 14 * 1024 * 1024) {
-      const bytes = new Uint8Array(
-        await audio.arrayBuffer()
-      );
-
-      let binary = "";
-
-      for (let i = 0; i < bytes.length; i += 8192) {
-        binary += String.fromCharCode(
-          ...bytes.subarray(i, i + 8192)
-        );
-      }
-
-      mediaPart = {
-        inline_data: {
-          mime_type: mimeType,
-          data: btoa(binary)
-        }
-      };
-
-    } else {
-
-      // Upload larger recordings using Gemini Files API.
-
-      const start = await fetch(
-        "https://generativelanguage.googleapis.com/upload/v1beta/files",
-        {
-          method: "POST",
-          headers: {
-            ...apiHeaders,
-            "Content-Type": "application/json",
-            "X-Goog-Upload-Protocol": "resumable",
-            "X-Goog-Upload-Command": "start",
-            "X-Goog-Upload-Header-Content-Length":
-              String(audio.size),
-            "X-Goog-Upload-Header-Content-Type":
-              mimeType
-          },
-          body: JSON.stringify({
-            file: {
-              display_name: "BA Call Recording"
-            }
-          })
-        }
-      );
-
-      if (!start.ok) {
-        return reply({
-          error: "Unable to initialize audio upload."
-        }, 502);
-      }
-
-      const uploadUrl = start.headers.get(
-        "X-Goog-Upload-URL"
-      );
-
-      if (!uploadUrl) {
-        return reply({
-          error: "Upload URL is missing."
-        }, 502);
-      }
-
-      const upload = await fetch(uploadUrl, {
-        method: "POST",
-        headers: {
-          "Content-Length": String(audio.size),
-          "X-Goog-Upload-Offset": "0",
-          "X-Goog-Upload-Command": "upload, finalize"
-        },
-        body: audio
-      });
-
-      if (!upload.ok) {
-        return reply({
-          error: "Audio upload failed."
-        }, 502);
-      }
-
-      uploadedFile = (await upload.json()).file;
-
-      for (
-        let i = 0;
-        uploadedFile.state === "PROCESSING" && i < 40;
-        i++
-      ) {
-
-        await new Promise(resolve =>
-          setTimeout(resolve, 2000)
-        );
-
-        const check = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/${uploadedFile.name}`,
-          {
-            headers: apiHeaders
-          }
-        );
-
-        if (!check.ok) {
-          return reply({
-            error: "File processing failed."
-          }, 502);
-        }
-
-        uploadedFile = await check.json();
-      }
-
-      if (uploadedFile.state !== "ACTIVE") {
-        return reply({
-          error: "Recording could not be prepared in time."
-        }, 502);
-      }
-
-      mediaPart = {
-        file_data: {
-          mime_type: uploadedFile.mimeType || mimeType,
-          file_uri: uploadedFile.uri
-        }
-      };
-    }
-
-    // Generate transcription using Gemini.
+    step = "Generating transcription";
 
     const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
+      `${BASE}/v1beta/models/${MODEL}:generateContent`,
       {
         method: "POST",
         headers: {
-          ...apiHeaders,
+          ...headers,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          contents: [{
-            role: "user",
-            parts: [
-              { text: prompt },
-              mediaPart
-            ]
-          }],
+          contents: [
+            {
+              parts: [
+                {
+                  fileData: {
+                    mimeType: uploadedFile.mimeType || mimeType,
+                    fileUri: uploadedFile.uri
+                  }
+                },
+                {
+                  text: prompt
+                }
+              ]
+            }
+          ],
           generationConfig: {
-            temperature: 0.1,
             maxOutputTokens: 32768
           }
         })
       }
     );
 
-    const result = await response.json();
-
-    if (response.status === 429) {
-      return reply({
-        error: "Gemini free quota reached. Please try again after the quota resets."
-      }, 429);
-    }
-
-    if (!response.ok) {
-      return reply({
-        error: `Gemini API request failed (${response.status}).`
-      }, 502);
-    }
+    const result = await readResponse(response);
 
     const candidate = result.candidates?.[0];
 
@@ -261,21 +285,29 @@ Continue this format for the entire recording.
       .trim();
 
     if (!transcription) {
-      return reply({
-        error: "No transcription was returned."
-      }, 502);
+      throw new Error(
+        "Gemini returned no transcription. Reason: " +
+        (
+          candidate?.finishReason ||
+          result.promptFeedback?.blockReason ||
+          "Unknown"
+        )
+      );
     }
 
     if (candidate.finishReason !== "STOP") {
       return reply({
-        error: "Transcription may be incomplete.",
+        success: false,
         transcription,
-        incomplete: true
+        incomplete: true,
+        error: "Transcription may be incomplete: " +
+          candidate.finishReason
       }, 422);
     }
 
     return reply({
       success: true,
+      model: MODEL,
       transcription,
       feedback: null,
       feedbackStatus: "Coming Soon"
@@ -283,27 +315,32 @@ Continue this format for the entire recording.
 
   } catch (error) {
 
+    const message = String(
+      error.message || "Unknown error"
+    ).split(key).join("[REDACTED]");
+
+    console.error(step, message);
+
     return reply({
-      error: "Transcription failed. Please try again."
-    }, 500);
+      success: false,
+      error: `${step}: ${message}`
+    }, message.includes("API 429") ? 429 : 502);
 
   } finally {
 
-    // Delete uploaded recording from Gemini Files API.
+    // Remove uploaded recording after processing.
 
     if (uploadedFile?.name) {
       try {
         await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/${uploadedFile.name}`,
+          `${BASE}/v1beta/${uploadedFile.name}`,
           {
             method: "DELETE",
-            headers: {
-              "x-goog-api-key": env.GEMINI_API_KEY
-            }
+            headers
           }
         );
       } catch {
-        // File cleanup could not be completed.
+        console.error("File cleanup failed.");
       }
     }
   }

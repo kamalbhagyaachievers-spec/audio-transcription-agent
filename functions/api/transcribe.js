@@ -8,11 +8,12 @@ export async function onRequestPost(context) {
       headers: { "Cache-Control": "no-store" }
     });
 
-  if (!env.GEMINI_API_KEY) {
-    return reply({
-      error: "Gemini API key is missing."
-    }, 500);
-  }
+if (!response.ok) {
+  return reply({
+    error: result.error?.message ||
+      `Gemini API request failed (${response.status}).`
+  }, 502);
+}
 
   let uploadedFile;
 

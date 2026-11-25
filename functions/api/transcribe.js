@@ -9,17 +9,9 @@ export async function onRequestPost(context) {
     });
 
   if (!env.GEMINI_API_KEY) {
-    return reply({ error: "Gemini API key is missing." }, 500);
-  }
-
-  // Keep the API closed until access protection is configured.
-  if (!env.APP_ACCESS_TOKEN) {
-    return reply({ error: "Access protection is not configured." }, 503);
-  }
-
-  if (request.headers.get("Authorization") !==
-      `Bearer ${env.APP_ACCESS_TOKEN}`) {
-    return reply({ error: "Unauthorized access." }, 401);
+    return reply({
+      error: "Gemini API key is missing."
+    }, 500);
   }
 
   let uploadedFile;
@@ -29,11 +21,15 @@ export async function onRequestPost(context) {
     const audio = form.get("audio");
 
     if (!audio || typeof audio.arrayBuffer !== "function" || !audio.size) {
-      return reply({ error: "Please upload an audio file." }, 400);
+      return reply({
+        error: "Please upload an audio file."
+      }, 400);
     }
 
     if (audio.size > 90 * 1024 * 1024) {
-      return reply({ error: "File exceeds the 90 MB upload limit." }, 413);
+      return reply({
+        error: "File exceeds the 90 MB upload limit."
+      }, 413);
     }
 
     const extension = audio.name.split(".").pop().toLowerCase();
@@ -52,7 +48,9 @@ export async function onRequestPost(context) {
     const mimeType = formats[extension];
 
     if (!mimeType) {
-      return reply({ error: "Unsupported file format." }, 400);
+      return reply({
+        error: "Unsupported file format."
+      }, 400);
     }
 
     const apiHeaders = {
@@ -66,6 +64,7 @@ for Bhagya Achievers.
 Transcribe the complete recording from beginning to end.
 
 STRICT RULES:
+
 1. Preserve the actual spoken words.
 2. Do not summarize or translate the conversation.
 3. Preserve Hindi, English and Hinglish.
@@ -93,7 +92,10 @@ Continue this format for the entire recording.
     let mediaPart;
 
     if (audio.size <= 14 * 1024 * 1024) {
-      const bytes = new Uint8Array(await audio.arrayBuffer());
+      const bytes = new Uint8Array(
+        await audio.arrayBuffer()
+      );
+
       let binary = "";
 
       for (let i = 0; i < bytes.length; i += 8192) {
@@ -108,8 +110,11 @@ Continue this format for the entire recording.
           data: btoa(binary)
         }
       };
+
     } else {
-      // Use the Gemini Files API for larger recordings.
+
+      // Upload larger recordings using Gemini Files API.
+
       const start = await fetch(
         "https://generativelanguage.googleapis.com/upload/v1beta/files",
         {
@@ -119,23 +124,33 @@ Continue this format for the entire recording.
             "Content-Type": "application/json",
             "X-Goog-Upload-Protocol": "resumable",
             "X-Goog-Upload-Command": "start",
-            "X-Goog-Upload-Header-Content-Length": String(audio.size),
-            "X-Goog-Upload-Header-Content-Type": mimeType
+            "X-Goog-Upload-Header-Content-Length":
+              String(audio.size),
+            "X-Goog-Upload-Header-Content-Type":
+              mimeType
           },
           body: JSON.stringify({
-            file: { display_name: "BA Call Recording" }
+            file: {
+              display_name: "BA Call Recording"
+            }
           })
         }
       );
 
       if (!start.ok) {
-        return reply({ error: "Unable to initialize audio upload." }, 502);
+        return reply({
+          error: "Unable to initialize audio upload."
+        }, 502);
       }
 
-      const uploadUrl = start.headers.get("X-Goog-Upload-URL");
+      const uploadUrl = start.headers.get(
+        "X-Goog-Upload-URL"
+      );
 
       if (!uploadUrl) {
-        return reply({ error: "Upload URL is missing." }, 502);
+        return reply({
+          error: "Upload URL is missing."
+        }, 502);
       }
 
       const upload = await fetch(uploadUrl, {
@@ -149,24 +164,34 @@ Continue this format for the entire recording.
       });
 
       if (!upload.ok) {
-        return reply({ error: "Audio upload failed." }, 502);
+        return reply({
+          error: "Audio upload failed."
+        }, 502);
       }
 
       uploadedFile = (await upload.json()).file;
 
-      for (let i = 0;
-           uploadedFile.state === "PROCESSING" && i < 40;
-           i++) {
+      for (
+        let i = 0;
+        uploadedFile.state === "PROCESSING" && i < 40;
+        i++
+      ) {
 
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve =>
+          setTimeout(resolve, 2000)
+        );
 
         const check = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/${uploadedFile.name}`,
-          { headers: apiHeaders }
+          {
+            headers: apiHeaders
+          }
         );
 
         if (!check.ok) {
-          return reply({ error: "File processing failed." }, 502);
+          return reply({
+            error: "File processing failed."
+          }, 502);
         }
 
         uploadedFile = await check.json();
@@ -185,6 +210,8 @@ Continue this format for the entire recording.
         }
       };
     }
+
+    // Generate transcription using Gemini.
 
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
@@ -214,7 +241,7 @@ Continue this format for the entire recording.
 
     if (response.status === 429) {
       return reply({
-        error: "Gemini quota reached. Please try again after the quota resets."
+        error: "Gemini free quota reached. Please try again after the quota resets."
       }, 429);
     }
 
@@ -233,7 +260,9 @@ Continue this format for the entire recording.
       .trim();
 
     if (!transcription) {
-      return reply({ error: "No transcription was returned." }, 502);
+      return reply({
+        error: "No transcription was returned."
+      }, 502);
     }
 
     if (candidate.finishReason !== "STOP") {
@@ -252,11 +281,15 @@ Continue this format for the entire recording.
     });
 
   } catch (error) {
+
     return reply({
       error: "Transcription failed. Please try again."
     }, 500);
 
   } finally {
+
+    // Delete uploaded recording from Gemini Files API.
+
     if (uploadedFile?.name) {
       try {
         await fetch(

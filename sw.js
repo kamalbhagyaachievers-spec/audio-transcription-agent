@@ -1,116 +1,27 @@
 
-const CACHE_NAME = "ba-transcription-v1";
-
-const APP_FILES = [
-    "./",
-    "./index.html",
-    "./style.css",
-    "./app.js",
-    "./worker.js",
-    "./manifest.json"
-];
-
-// Cache application files
-
-self.addEventListener("install", (event) => {
-
-    event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then((cache) => {
-                return cache.addAll(APP_FILES);
-            })
-            .then(() => self.skipWaiting())
-    );
-
+self.addEventListener("install", event => {
+  self.skipWaiting();
 });
 
-// Remove outdated application caches
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    (async () => {
+      const cacheNames = await caches.keys();
 
-self.addEventListener("activate", (event) => {
+      await Promise.all(
+        cacheNames.map(name => caches.delete(name))
+      );
 
-    event.waitUntil(
-        caches.keys()
-            .then((keys) => {
+      await self.clients.claim();
+      await self.registration.unregister();
 
-                return Promise.all(
-                    keys
-                        .filter((key) =>
-                            key.startsWith("ba-transcription-") &&
-                            key !== CACHE_NAME
-                        )
-                        .map((key) => caches.delete(key))
-                );
+      const clients = await self.clients.matchAll({
+        type: "window"
+      });
 
-            })
-            .then(() => self.clients.claim())
-    );
-
-});
-
-// Serve cached resources when offline
-
-self.addEventListener("fetch", (event) => {
-
-    const request = event.request;
-
-    if (request.method !== "GET") return;
-
-    const url = new URL(request.url);
-
-    const allowed =
-        url.origin === self.location.origin ||
-        url.hostname === "cdn.jsdelivr.net";
-
-    if (!allowed) return;
-
-    event.respondWith(
-
-        (async () => {
-
-            const cache = await caches.open(CACHE_NAME);
-
-            try {
-
-                const response = await fetch(request);
-
-                if (
-                    response.ok &&
-                    response.status === 200
-                ) {
-
-                    await cache.put(
-                        request,
-                        response.clone()
-                    ).catch(() => {});
-
-                }
-
-                return response;
-
-            } catch (error) {
-
-                const cached = await cache.match(request);
-
-                if (cached) {
-                    return cached;
-                }
-
-                if (request.mode === "navigate") {
-
-                    const fallback = await cache.match(
-                        "./index.html"
-                    );
-
-                    if (fallback) return fallback;
-
-                }
-
-                throw error;
-
-            }
-
-        })()
-
-    );
-
+      for (const client of clients) {
+        client.navigate(client.url);
+      }
+    })()
+  );
 });

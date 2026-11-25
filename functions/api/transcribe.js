@@ -1,9 +1,9 @@
 
-const BASE = "https://generativelanguage.googleapis.com";
-const MODEL = "gemini-3.8-flash";
+const API_URL =
+  "https://api.groq.com/openai/v1/audio/transcriptions";
 
-const INLINE_LIMIT = 14 * 1024 * 1024;
-const MAX_SIZE = 90 * 1024 * 1024;
+const MODEL = "whisper-large-v3";
+const MAX_SIZE = 25 * 1000 * 1000;
 
 function reply(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -15,64 +15,43 @@ function reply(data, status = 200) {
   });
 }
 
-export async function onRequestGet() {
+function timestamp(seconds) {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+
+  return [h, m, s]
+    .map(n => String(n).padStart(2, "0"))
+    .join(":");
+}
+
+export async function onRequestGet(context) {
   return reply({
     success: true,
-    service: "BA Transcription API",
-    version: "3.0",
+    service: "Bhagya Achievers Transcription API",
+    version: "4.0",
+    provider: "Groq",
     model: MODEL,
+    apiKeyConfigured: Boolean(context.env.GROQ_API_KEY),
     status: "Backend is active"
   });
 }
 
 export async function onRequestPost(context) {
-
   const { request, env } = context;
-  const key = env.GEMINI_API_KEY;
+  const apiKey = env.GROQ_API_KEY;
 
-  if (!key) {
+  if (!apiKey) {
     return reply({
-      error: "Gemini API key is missing."
+      success: false,
+      error: "GROQ_API_KEY is missing in Cloudflare."
     }, 500);
   }
 
-  const headers = {
-    "x-goog-api-key": key
-  };
-
-  let uploadedFile = null;
-  let step = "Initialization";
-
-  async function readResponse(response) {
-
-    const raw = await response.text();
-
-    let data;
-
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      throw new Error(
-        `Non-JSON API response (${response.status})`
-      );
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        `Google API ${response.status}: ` +
-        (data.error?.message || "Request failed.")
-      );
-    }
-
-    return data;
-  }
-
   try {
-
-    step = "Reading recording";
-
-    const form = await request.formData();
-    const audio = form.get("audio");
+    const incoming = await request.formData();
+    const audio = incoming.get("audio");
 
     if (
       !audio ||
@@ -80,13 +59,15 @@ export async function onRequestPost(context) {
       !audio.size
     ) {
       return reply({
-        error: "Please upload a recording."
+        success: false,
+        error: "Please upload a valid audio recording."
       }, 400);
     }
 
     if (audio.size > MAX_SIZE) {
       return reply({
-        error: "Maximum recording size is 90 MB."
+        success: false,
+        error: "Maximum file size is 25 MB on Groq free tier."
       }, 413);
     }
 
@@ -95,329 +76,132 @@ export async function onRequestPost(context) {
       .pop()
       .toLowerCase();
 
-    const formats = {
-      mp3: "audio/mpeg",
-      mp4: "video/mp4",
-      m4a: "audio/mp4",
-      wav: "audio/wav",
-      ogg: "audio/ogg",
-      flac: "audio/flac",
-      aac: "audio/aac",
-      webm: "audio/webm"
-    };
+    const supported = [
+      "mp3", "mp4", "wav", "m4a",
+      "ogg", "flac", "webm", "mpeg", "mpga"
+    ];
 
-    let mimeType = formats[extension];
-
-    if (!mimeType) {
+    if (!supported.includes(extension)) {
       return reply({
-        error: "Unsupported recording format."
+        success: false,
+        error: "Unsupported audio format."
       }, 400);
     }
 
-    if (
-      extension === "mp4" &&
-      audio.type === "audio/mp4"
-    ) {
-      mimeType = "audio/mp4";
-    }
+    const body = new FormData();
 
-    if (
-      extension === "webm" &&
-      audio.type === "video/webm"
-    ) {
-      mimeType = "video/webm";
-    }
+    body.append("file", audio, audio.name);
+    body.append("model", MODEL);
+    body.append("response_format", "verbose_json");
+    body.append("temperature", "0");
+    body.append("timestamp_granularities[]", "segment");
 
-    const prompt = `
-You are the professional transcription engine
-for Bhagya Achievers.
-
-Transcribe the complete spoken conversation
-from the beginning to the end of the recording.
-
-STRICT INSTRUCTIONS:
-
-1. Preserve the original spoken words.
-2. Support Hindi, English and Hinglish.
-3. Do not translate the conversation.
-4. Do not summarize the conversation.
-5. Identify each speaker consistently.
-6. Add a timestamp at every speaker change.
-7. Use timestamps from the original recording.
-8. Do not fabricate any dialogue.
-9. Do not repeat sentences unnecessarily.
-10. Mark unclear speech as [Inaudible].
-11. Ignore visual content and focus on speech.
-12. Do not provide feedback or analysis.
-13. Return plain text only.
-14. Do not skip any portion of the conversation.
-
-OUTPUT FORMAT:
-
-Speaker A (00:02)
-Hello, good morning.
-
-Speaker B (00:05)
-Yes, good morning ma'am.
-
-Speaker A (00:09)
-Aap kaunsa attempt target kar rahe ho?
-
-Continue until the recording ends.
-`;
-
-    let mediaPart;
-    let uploadMethod;
-
-    // Direct upload for smaller recordings.
-
-    if (audio.size <= INLINE_LIMIT) {
-
-      step = "Preparing direct upload";
-      uploadMethod = "Direct Inline Upload";
-
-      const buffer = await audio.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-
-      let binary = "";
-
-      for (
-        let i = 0;
-        i < bytes.length;
-        i += 8192
-      ) {
-        binary += String.fromCharCode(
-          ...bytes.subarray(i, i + 8192)
-        );
-      }
-
-      const base64 = btoa(binary);
-
-      mediaPart = {
-        inlineData: {
-          mimeType: mimeType,
-          data: base64
-        }
-      };
-
-    } else {
-
-      // Files API for larger recordings.
-
-      uploadMethod = "Gemini Files API";
-
-      step = "Initializing large file upload";
-
-      const start = await fetch(
-        `${BASE}/upload/v1beta/files`,
-        {
-          method: "POST",
-          headers: {
-            ...headers,
-            "Content-Type": "application/json",
-            "X-Goog-Upload-Protocol": "resumable",
-            "X-Goog-Upload-Command": "start",
-            "X-Goog-Upload-Header-Content-Length":
-              String(audio.size),
-            "X-Goog-Upload-Header-Content-Type":
-              mimeType
-          },
-          body: JSON.stringify({
-            file: {
-              display_name: "BA Call Recording"
-            }
-          })
-        }
-      );
-
-      if (!start.ok) {
-        await readResponse(start);
-      }
-
-      const uploadUrl = start.headers.get(
-        "X-Goog-Upload-URL"
-      );
-
-      if (!uploadUrl) {
-        throw new Error(
-          "Google upload URL not received."
-        );
-      }
-
-      step = "Uploading large recording";
-
-      const uploadResponse = await fetch(
-        uploadUrl,
-        {
-          method: "POST",
-          headers: {
-            "Content-Length": String(audio.size),
-            "Content-Type": mimeType,
-            "X-Goog-Upload-Offset": "0",
-            "X-Goog-Upload-Command":
-              "upload, finalize"
-          },
-          body: audio
-        }
-      );
-
-      const uploadResult = await readResponse(
-        uploadResponse
-      );
-
-      uploadedFile = uploadResult.file;
-
-      if (!uploadedFile?.name) {
-        throw new Error(
-          "Google did not return a file."
-        );
-      }
-
-      step = "Processing large recording";
-
-      for (let i = 0; i < 30; i++) {
-
-        if (uploadedFile.state === "ACTIVE") {
-          break;
-        }
-
-        if (uploadedFile.state === "FAILED") {
-          throw new Error(
-            uploadedFile.error?.message ||
-            "Google could not decode this recording."
-          );
-        }
-
-        await new Promise(resolve =>
-          setTimeout(resolve, 2000)
-        );
-
-        const check = await fetch(
-          `${BASE}/v1beta/${uploadedFile.name}`,
-          { headers }
-        );
-
-        uploadedFile = await readResponse(check);
-      }
-
-      if (uploadedFile.state !== "ACTIVE") {
-        throw new Error(
-          uploadedFile.error?.message ||
-          "Recording processing did not complete."
-        );
-      }
-
-      mediaPart = {
-        fileData: {
-          mimeType:
-            uploadedFile.mimeType || mimeType,
-          fileUri: uploadedFile.uri
-        }
-      };
-    }
-
-    // Generate complete transcription.
-
-    step = "Generating transcription";
-
-    const response = await fetch(
-      `${BASE}/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: "POST",
-
-        headers: {
-          ...headers,
-          "Content-Type": "application/json"
-        },
-
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [
-                mediaPart,
-                { text: prompt }
-              ]
-            }
-          ],
-
-          generationConfig: {
-            maxOutputTokens: 32768
-          }
-        })
-      }
+    body.append(
+      "prompt",
+      "Bhagya Achievers education counselling call. " +
+      "Hindi, English and Hinglish conversation. " +
+      "CA, CS, CMA, Banking, ICAI, Test Series, " +
+      "Mentorship, Mock Tests, Examination, Fees."
     );
 
-    const result = await readResponse(response);
+    let response;
 
-    const candidate = result.candidates?.[0];
+    // Retry once if Groq is temporarily unavailable.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`
+        },
+        body
+      });
 
-    const transcription = candidate
-      ?.content
-      ?.parts
-      ?.filter(part => !part.thought)
-      .map(part => part.text || "")
-      .join("\n")
-      .trim();
+      if (![502, 503, 504].includes(response.status) ||
+          attempt === 1) {
+        break;
+      }
 
-    if (!transcription) {
-      throw new Error(
-        "No transcription received. Reason: " +
-        (
-          candidate?.finishReason ||
-          result.promptFeedback?.blockReason ||
-          "Unknown"
-        )
+      await response.body?.cancel();
+
+      await new Promise(resolve =>
+        setTimeout(resolve, 2000)
       );
     }
 
-    if (candidate.finishReason !== "STOP") {
+    const raw = await response.text();
+
+    let result;
+
+    try {
+      result = JSON.parse(raw);
+    } catch {
       return reply({
         success: false,
-        transcription,
-        incomplete: true,
-        error:
-          "Transcription may be incomplete: " +
-          candidate.finishReason
+        error: `Invalid Groq response (${response.status})`
+      }, 502);
+    }
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        return reply({
+          success: false,
+          error: "Groq rate limit reached. Check your free quota and try again later."
+        }, 429);
+      }
+
+      const message = String(
+        result.error?.message || "Transcription failed."
+      ).split(apiKey).join("[REDACTED]");
+
+      return reply({
+        success: false,
+        error: `Groq API ${response.status}: ${message}`
+      }, response.status);
+    }
+
+    let transcription = "";
+
+    if (Array.isArray(result.segments) &&
+        result.segments.length > 0) {
+
+      transcription = result.segments
+        .filter(segment => segment.text?.trim())
+        .map(segment => {
+          const start = timestamp(segment.start);
+          const end = timestamp(segment.end);
+
+          return `[${start} - ${end}]\n${segment.text.trim()}`;
+        })
+        .join("\n\n");
+
+    } else {
+      transcription = result.text?.trim() || "";
+    }
+
+    if (!transcription) {
+      return reply({
+        success: false,
+        error: "No spoken content could be detected."
       }, 422);
     }
 
     return reply({
       success: true,
       transcription,
+      provider: "Groq",
       model: MODEL,
-      uploadMethod,
+      language: result.language || "Auto",
+      duration: result.duration || null,
+      speakerIdentification: false,
       feedback: null,
       feedbackStatus: "Coming Soon"
     });
 
   } catch (error) {
-
-    const message = String(
-      error.message || "Unknown error"
-    ).split(key).join("[REDACTED]");
-
-    console.error(step, message);
-
     return reply({
       success: false,
-      error: `${step}: ${message}`
-    }, message.includes("API 429") ? 429 : 502);
-
-  } finally {
-
-    if (uploadedFile?.name) {
-      try {
-        await fetch(
-          `${BASE}/v1beta/${uploadedFile.name}`,
-          {
-            method: "DELETE",
-            headers
-          }
-        );
-      } catch {
-        console.error("File cleanup failed.");
-      }
-    }
+      error: String(error.message || "Unexpected error")
+        .split(apiKey).join("[REDACTED]")
+    }, 500);
   }
 }

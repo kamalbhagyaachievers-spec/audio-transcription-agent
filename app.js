@@ -1,470 +1,431 @@
 
-const $ = (id) => document.getElementById(id);
-
-const audioFile = $("audioFile");
-const dropZone = $("dropZone");
-const audioPlayer = $("audioPlayer");
-const fileName = $("fileName");
-const transcribeBtn = $("transcribeBtn");
-const cancelBtn = $("cancelBtn");
-const progressBar = $("progressBar");
-const statusText = $("statusText");
-const transcription = $("transcription");
-const wordCount = $("wordCount");
+const audioFile = document.getElementById("audioFile");
+const dropZone = document.getElementById("dropZone");
+const audioPlayer = document.getElementById("audioPlayer");
+const fileName = document.getElementById("fileName");
+const transcribeBtn = document.getElementById("transcribeBtn");
+const cancelBtn = document.getElementById("cancelBtn");
+const progressBar = document.getElementById("progressBar");
+const statusText = document.getElementById("statusText");
+const transcription = document.getElementById("transcription");
+const wordCount = document.getElementById("wordCount");
+const copyBtn = document.getElementById("copyBtn");
+const downloadBtn = document.getElementById("downloadBtn");
+const clearBtn = document.getElementById("clearBtn");
+const srtBtn = document.getElementById("srtBtn");
 
 let selectedFile = null;
-let worker = null;
+let controller = null;
 let audioURL = null;
-let chunks = [];
-let busy = false;
-let jobId = 0;
+let progressTimer = null;
+let running = false;
 
-// Update transcription word count
+// Update progress display.
+
+function setProgress(value) {
+  if (!progressBar) return;
+
+  progressBar.style.width = value + "%";
+
+  if (progressBar.tagName === "PROGRESS") {
+    progressBar.value = value;
+  }
+}
+
+function setStatus(message) {
+  if (statusText) {
+    statusText.textContent = message;
+  }
+}
+
+// Read and display transcription.
+
+function getText() {
+  return "value" in transcription
+    ? transcription.value
+    : transcription.textContent;
+}
+
+function setText(text) {
+  if ("value" in transcription) {
+    transcription.value = text;
+  } else {
+    transcription.textContent = text;
+  }
+
+  updateWordCount();
+}
 
 function updateWordCount() {
-    const text = transcription.value.trim();
+  const text = getText().trim();
+  const count = text ? text.split(/\s+/).length : 0;
 
-    const count = text
-        ? text.split(/\s+/).length
-        : 0;
-
-    wordCount.textContent = `${count} words`;
+  if (wordCount) {
+    wordCount.textContent = count + " words";
+  }
 }
 
-transcription.addEventListener(
-    "input",
-    updateWordCount
-);
+// Handle uploaded recording.
 
-// Update processing status
+function selectFile(file) {
+  if (!file || running) return;
 
-function setStatus(message, progress) {
-    statusText.textContent = message;
+  const allowed = [
+    "mp3", "mp4", "wav", "m4a",
+    "ogg", "flac", "aac", "webm"
+  ];
 
-    if (typeof progress === "number") {
-        progressBar.value = progress;
-    }
-}
+  const extension = file.name
+    .split(".")
+    .pop()
+    .toLowerCase();
 
-// Enable or disable controls
+  if (!allowed.includes(extension)) {
+    setStatus("Unsupported audio format.");
+    return;
+  }
 
-function setBusy(value) {
-    busy = value;
+  if (file.size > 90 * 1024 * 1024) {
+    setStatus("Maximum file size is 90 MB.");
+    return;
+  }
 
-    transcribeBtn.disabled = value || !selectedFile;
-    cancelBtn.hidden = !value;
-    audioFile.disabled = value;
-    $("language").disabled = value;
-    $("model").disabled = value;
-    $("clearBtn").disabled = value;
-}
+  selectedFile = file;
 
-// Select audio file
+  if (fileName) {
+    fileName.textContent =
+      file.name + " (" +
+      (file.size / 1024 / 1024).toFixed(2) +
+      " MB)";
+  }
 
-function selectAudio(file) {
-    if (!file || busy) return;
+  if (audioURL) {
+    URL.revokeObjectURL(audioURL);
+  }
 
-    selectedFile = file;
-    chunks = [];
+  audioURL = URL.createObjectURL(file);
 
-    if (audioURL) {
-        URL.revokeObjectURL(audioURL);
-    }
-
-    audioURL = URL.createObjectURL(file);
-
+  if (audioPlayer) {
     audioPlayer.src = audioURL;
     audioPlayer.hidden = false;
+    audioPlayer.style.display = "block";
+  }
 
-    const size = (file.size / 1024 / 1024).toFixed(2);
+  setText("");
+  setProgress(0);
+  setStatus("Recording ready for transcription.");
 
-    fileName.textContent =
-        `${file.name} | ${size} MB`;
-
-    transcription.value = "";
-    updateWordCount();
-
-    transcribeBtn.disabled = false;
-
-    setStatus("Audio selected. Ready to transcribe.", 0);
+  transcribeBtn.disabled = false;
 }
 
-audioFile.addEventListener("change", (event) => {
-    selectAudio(event.target.files[0]);
+audioFile.accept =
+  "audio/*,video/mp4,.mp3,.mp4,.wav,.m4a,.ogg,.flac,.aac,.webm";
+
+audioFile.addEventListener("change", event => {
+  selectFile(event.target.files[0]);
 });
 
-// Drag and drop functionality
+// Drag and drop support.
 
-dropZone.addEventListener("dragover", (event) => {
+if (dropZone) {
+  dropZone.addEventListener("dragover", event => {
     event.preventDefault();
+    dropZone.classList.add("dragover");
+  });
 
-    if (!busy) {
-        dropZone.classList.add("dragover");
-    }
-});
-
-dropZone.addEventListener("dragleave", () => {
+  dropZone.addEventListener("dragleave", () => {
     dropZone.classList.remove("dragover");
-});
+  });
 
-dropZone.addEventListener("drop", (event) => {
+  dropZone.addEventListener("drop", event => {
     event.preventDefault();
     dropZone.classList.remove("dragover");
+    selectFile(event.dataTransfer.files[0]);
+  });
 
-    selectAudio(event.dataTransfer.files[0]);
-});
-
-// Convert audio to 16 kHz mono for Whisper
-
-async function decodeAudio(file) {
-    const buffer = await file.arrayBuffer();
-
-    const context = new AudioContext();
-
-    try {
-        const decoded = await context.decodeAudioData(buffer);
-
-        const offline = new OfflineAudioContext(
-            1,
-            Math.ceil(decoded.duration * 16000),
-            16000
-        );
-
-        const source = offline.createBufferSource();
-
-        source.buffer = decoded;
-        source.connect(offline.destination);
-        source.start(0);
-
-        const rendered = await offline.startRendering();
-
-        return rendered.getChannelData(0);
-
-    } finally {
-        await context.close();
+  dropZone.addEventListener("click", event => {
+    if (!event.target.closest("input, button, label, audio")) {
+      audioFile.click();
     }
+  });
 }
 
-// Create background AI worker
-
-function createWorker() {
-    const instance = new Worker("./worker.js", {
-        type: "module"
-    });
-
-    instance.onmessage = (event) => {
-        if (worker !== instance || !busy) return;
-
-        const data = event.data;
-
-        switch (data.type) {
-
-            case "loading":
-                setStatus(
-                    data.message || "Loading AI model...",
-                    data.progress
-                );
-                break;
-
-            case "ready":
-                setStatus(
-                    "AI model ready. Transcribing audio...",
-                    0
-                );
-                break;
-
-            case "progress":
-                setStatus(
-                    data.message || "Transcribing audio...",
-                    data.progress
-                );
-                break;
-
-            case "partial":
-                transcription.value = data.text || "";
-                updateWordCount();
-                break;
-
-            case "complete":
-                transcription.value = data.text || "";
-                chunks = data.chunks || [];
-
-                updateWordCount();
-                setBusy(false);
-
-                setStatus(
-                    "Transcription completed successfully.",
-                    100
-                );
-                break;
-
-            case "error":
-                setBusy(false);
-
-                setStatus(
-                    "Error: " + data.message,
-                    0
-                );
-                break;
-        }
-    };
-
-    instance.onerror = (event) => {
-        if (worker !== instance) return;
-
-        instance.terminate();
-        worker = null;
-
-        setBusy(false);
-
-        setStatus(
-            "AI engine error: " + event.message,
-            0
-        );
-    };
-
-    return instance;
-}
-
-// Start transcription
+// Generate transcription using Gemini.
 
 transcribeBtn.addEventListener("click", async () => {
+  if (running) return;
 
-    if (!selectedFile || busy) return;
+  if (!selectedFile) {
+    setStatus("Please upload a recording first.");
+    return;
+  }
 
-    const currentJob = ++jobId;
+  running = true;
+  controller = new AbortController();
 
-    setBusy(true);
+  transcribeBtn.disabled = true;
+  audioFile.disabled = true;
 
-    transcription.value = "";
-    chunks = [];
-    updateWordCount();
+  if (cancelBtn) {
+    cancelBtn.disabled = false;
+  }
 
-    setStatus("Preparing audio locally...", 0);
+  setText("");
+  setProgress(5);
 
-    try {
-        const audio = await decodeAudio(selectedFile);
+  setStatus(
+    "Uploading recording to Gemini AI..."
+  );
 
-        if (currentJob !== jobId) return;
+  let progress = 5;
 
-        if (!worker) {
-            worker = createWorker();
-        }
+  // Estimated progress, not actual API progress.
 
-        const model = $("model").value;
-        const language = $("language").value;
+  progressTimer = setInterval(() => {
+    progress = Math.min(progress + 1, 90);
+    setProgress(progress);
 
-        setStatus("Preparing Whisper AI model...", 0);
+    setStatus(
+      "Gemini is processing your recording. Please wait..."
+    );
+  }, 1500);
 
-        worker.postMessage({
-            type: "transcribe",
-            audio: audio,
-            model: model,
-            language: language
-        }, [audio.buffer]);
+  try {
+    const formData = new FormData();
 
-    } catch (error) {
-        if (currentJob !== jobId) return;
+    formData.append("audio", selectedFile);
 
-        setBusy(false);
-
-        setStatus(
-            "Unable to process audio: " + error.message,
-            0
-        );
-    }
-});
-
-// Cancel transcription
-
-cancelBtn.addEventListener("click", () => {
-
-    jobId++;
-
-    if (worker) {
-        worker.terminate();
-        worker = null;
-    }
-
-    setBusy(false);
-
-    setStatus("Transcription cancelled.", 0);
-});
-
-// Copy transcription
-
-$("copyBtn").addEventListener("click", async () => {
-
-    if (!transcription.value.trim()) {
-        alert("No transcription available.");
-        return;
-    }
-
-    try {
-        await navigator.clipboard.writeText(
-            transcription.value
-        );
-
-        const button = $("copyBtn");
-
-        button.textContent = "Copied!";
-
-        setTimeout(() => {
-            button.textContent = "Copy Text";
-        }, 1500);
-
-    } catch {
-        alert("Unable to copy automatically. Please select and copy the text.");
-    }
-});
-
-// Download helper
-
-function downloadFile(content, extension, mimeType) {
-
-    const blob = new Blob([content], {
-        type: mimeType
+    const response = await fetch("/api/transcribe", {
+      method: "POST",
+      body: formData,
+      signal: controller.signal
     });
 
-    const url = URL.createObjectURL(blob);
+    const result = await response.json();
 
-    const link = document.createElement("a");
+    if (result.transcription) {
+      setText(result.transcription);
+    }
 
-    const name = selectedFile
-        ? selectedFile.name.replace(/\.[^.]+$/, "")
-        : "transcription";
+    if (!response.ok) {
+      throw new Error(
+        result.error || "Transcription failed."
+      );
+    }
 
-    link.href = url;
-    link.download = `${name}.${extension}`;
+    if (!result.transcription) {
+      throw new Error(
+        "No transcription received."
+      );
+    }
 
-    document.body.appendChild(link);
+    setProgress(100);
 
-    link.click();
-    link.remove();
+    setStatus(
+      "Transcription completed successfully!"
+    );
 
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+
+    if (error.name === "AbortError") {
+      setStatus("Transcription request cancelled.");
+    } else {
+      setStatus(error.message);
+    }
+
+    setProgress(0);
+
+  } finally {
+
+    clearInterval(progressTimer);
+
+    running = false;
+    controller = null;
+
+    transcribeBtn.disabled = false;
+    audioFile.disabled = false;
+
+    if (cancelBtn) {
+      cancelBtn.disabled = true;
+    }
+  }
+});
+
+// Cancel transcription request.
+
+if (cancelBtn) {
+  cancelBtn.addEventListener("click", () => {
+    if (controller) {
+      controller.abort();
+    }
+  });
 }
 
-// Download TXT
+// Copy transcription.
 
-$("downloadBtn").addEventListener("click", () => {
+if (copyBtn) {
+  copyBtn.addEventListener("click", async () => {
+    const text = getText();
 
-    if (!transcription.value.trim()) {
-        alert("No transcription available.");
-        return;
+    if (!text.trim()) {
+      setStatus("No transcription available.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus("Transcription copied.");
+    } catch {
+      setStatus("Unable to copy. Select text manually.");
+    }
+  });
+}
+
+// Download file helper.
+
+function downloadFile(content, name, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = name;
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function outputName() {
+  return selectedFile
+    ? selectedFile.name.replace(/\.[^.]+$/, "")
+    : "BA-Transcription";
+}
+
+// Download TXT.
+
+if (downloadBtn) {
+  downloadBtn.addEventListener("click", () => {
+    const text = getText();
+
+    if (!text.trim()) {
+      setStatus("No transcription available.");
+      return;
     }
 
     downloadFile(
-        transcription.value,
-        "txt",
-        "text/plain;charset=utf-8"
-    );
-});
-
-// Convert seconds to subtitle timestamp
-
-function formatTimestamp(seconds) {
-
-    const total = Math.max(
-        0,
-        Math.round((seconds || 0) * 1000)
+      text,
+      outputName() + "-Transcription.txt",
+      "text/plain;charset=utf-8"
     );
 
-    const hours = Math.floor(total / 3600000);
-    const minutes = Math.floor(total / 60000) % 60;
-    const secs = Math.floor(total / 1000) % 60;
-    const ms = total % 1000;
-
-    return (
-        String(hours).padStart(2, "0") + ":" +
-        String(minutes).padStart(2, "0") + ":" +
-        String(secs).padStart(2, "0") + "," +
-        String(ms).padStart(3, "0")
-    );
+    setStatus("Text file downloaded.");
+  });
 }
 
-// Download SRT subtitles
+// Word-compatible document export.
 
-$("srtBtn").addEventListener("click", () => {
+function escapeHTML(text) {
+  return text.replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
 
-    const validChunks = chunks.filter(
-        (chunk) =>
-            chunk.timestamp &&
-            Number.isFinite(chunk.timestamp[0]) &&
-            Number.isFinite(chunk.timestamp[1])
-    );
+if (srtBtn) {
+  srtBtn.textContent = "Download Word";
 
-    if (!validChunks.length) {
-        alert("No completed timestamp data available.");
-        return;
+  srtBtn.addEventListener("click", () => {
+    const text = getText();
+
+    if (!text.trim()) {
+      setStatus("No transcription available.");
+      return;
     }
 
-    const content = validChunks.map((chunk, index) => {
-
-        const start = formatTimestamp(chunk.timestamp[0]);
-        const end = formatTimestamp(chunk.timestamp[1]);
-
-        return (
-            `${index + 1}\n` +
-            `${start} --> ${end}\n` +
-            `${chunk.text.trim()}\n`
-        );
-
-    }).join("\n");
+    const html = `
+      <html>
+      <head>
+      <meta charset="UTF-8">
+      </head>
+      <body style="font-family:Calibri;font-size:11pt;">
+      <h1 style="color:#b91c1c;">
+        Bhagya Achievers
+      </h1>
+      <h2>Sales Call Transcription</h2>
+      <p>${escapeHTML(outputName())}</p>
+      <hr>
+      <div style="white-space:pre-wrap;">
+        ${escapeHTML(text)}
+      </div>
+      </body>
+      </html>
+    `;
 
     downloadFile(
-        content,
-        "srt",
-        "text/plain;charset=utf-8"
+      "\ufeff" + html,
+      outputName() + "-Transcription.doc",
+      "application/msword"
     );
-});
 
-// Clear audio and transcription
+    setStatus("Word-compatible document downloaded.");
+  });
+}
 
-$("clearBtn").addEventListener("click", () => {
+// Clear transcription and recording.
 
-    if (busy) return;
+if (clearBtn) {
+  clearBtn.addEventListener("click", () => {
+    if (running) {
+      setStatus("Cancel the current request first.");
+      return;
+    }
 
     selectedFile = null;
-    chunks = [];
-
     audioFile.value = "";
-    transcription.value = "";
-
-    audioPlayer.pause();
-    audioPlayer.removeAttribute("src");
-    audioPlayer.load();
-    audioPlayer.hidden = true;
 
     if (audioURL) {
-        URL.revokeObjectURL(audioURL);
-        audioURL = null;
+      URL.revokeObjectURL(audioURL);
+      audioURL = null;
     }
 
-    fileName.textContent = "No file selected";
+    if (audioPlayer) {
+      audioPlayer.removeAttribute("src");
+      audioPlayer.load();
+    }
+
+    if (fileName) {
+      fileName.textContent = "No file selected";
+    }
+
+    setText("");
+    setProgress(0);
+    setStatus("Upload a recording to begin.");
 
     transcribeBtn.disabled = true;
-
-    updateWordCount();
-
-    setStatus("Ready to transcribe", 0);
-});
-
-// Register offline service worker
-
-if ("serviceWorker" in navigator) {
-
-    window.addEventListener("load", () => {
-
-        navigator.serviceWorker
-            .register("./sw.js")
-            .catch((error) => {
-                console.warn(
-                    "Offline setup unavailable:",
-                    error
-                );
-            });
-    });
+  });
 }
 
-updateWordCount();
+// Update word count after manual editing.
+
+transcription.addEventListener(
+  "input",
+  updateWordCount
+);
+
+// Initial interface state.
+
+transcribeBtn.disabled = true;
+
+if (cancelBtn) {
+  cancelBtn.disabled = true;
+}
+
+setProgress(0);
+setStatus("Upload a recording to begin.");

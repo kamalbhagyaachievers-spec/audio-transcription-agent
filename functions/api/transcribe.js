@@ -96,13 +96,6 @@ export async function onRequestPost(context) {
     body.append("temperature", "0");
     body.append("timestamp_granularities[]", "segment");
 
-    body.append(
-  "prompt",
-  "Bhagya Achievers education counselling call. " +
-  "Hindi, English and Hinglish conversation. " +
-  "CA, CS, CMA, Banking, ICAI, Test Series, " +
-  "Mentorship, Mock Tests, Examination, Fees."
-);
 
     let response;
 

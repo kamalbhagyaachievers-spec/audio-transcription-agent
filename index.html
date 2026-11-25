@@ -2,119 +2,472 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#b91c1c">
-    <title>Bhagya Achievers | AI Transcription</title>
-    <link rel="stylesheet" href="./style.css">
-    <link rel="manifest" href="./manifest.json">
+  <meta charset="UTF-8">
+
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+  <meta name="theme-color" content="#b91c1c">
+
+  <title>Bhagya Achievers | AI Transcription Agent</title>
+
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #fff8f5;
+      color: #252525;
+    }
+
+    .ba-header {
+      background: #ffffff;
+      padding: 24px;
+      border-bottom: 1px solid #eadbd6;
+    }
+
+    .ba-header-inner {
+      max-width: 1100px;
+      margin: auto;
+    }
+
+    .brand {
+      color: #b91c1c;
+      font-size: 26px;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .subtitle {
+      color: #777;
+      font-size: 14px;
+      margin-top: 8px;
+    }
+
+    .workspace {
+      max-width: 1100px;
+      margin: 30px auto;
+      padding: 0 20px;
+    }
+
+    .navigation {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .navigation-item {
+      flex: 1;
+      padding: 18px;
+      border-radius: 12px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .active-tab {
+      background: #b91c1c;
+      color: white;
+    }
+
+    .inactive-tab {
+      background: #eeeeee;
+      color: #777777;
+    }
+
+    .coming-soon {
+      display: block;
+      font-size: 11px;
+      margin-top: 5px;
+    }
+
+    .ba-panel {
+      background: white;
+      border: 1px solid #eadbd6;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 22px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.035);
+    }
+
+    .ba-panel h2 {
+      margin: 0 0 18px;
+      font-size: 20px;
+    }
+
+    #dropZone {
+      border: 2px dashed #e5a5a5;
+      background: #fff8f5;
+      padding: 35px 20px;
+      border-radius: 12px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    #dropZone.dragover {
+      background: #ffe4e4;
+      border-color: #b91c1c;
+    }
+
+    .upload-icon {
+      font-size: 35px;
+      margin-bottom: 12px;
+    }
+
+    .file-label {
+      display: inline-block;
+      background: #b91c1c;
+      color: white;
+      padding: 12px 22px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    #audioFile {
+      display: none;
+    }
+
+    .file-formats {
+      font-size: 12px;
+      color: #777;
+      margin-top: 15px;
+    }
+
+    #fileName {
+      margin-top: 16px;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+
+    #audioPlayer {
+      width: 100%;
+      margin-top: 16px;
+      display: none;
+    }
+
+    .engine-info {
+      background: #f8f8f8;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 15px;
+    }
+
+    button {
+      padding: 12px 18px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #transcribeBtn {
+      background: #b91c1c;
+      color: white;
+      flex: 1;
+    }
+
+    .secondary-btn {
+      background: #f4f4f4;
+      color: #333333;
+      border: 1px solid #dddddd;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 8px;
+      background: #eeeeee;
+      border-radius: 20px;
+      overflow: hidden;
+      margin-top: 22px;
+    }
+
+    #progressBar {
+      width: 0;
+      height: 100%;
+      background: #b91c1c;
+      transition: width 0.4s ease;
+    }
+
+    #statusText {
+      margin-top: 12px;
+      color: #666666;
+      font-size: 13px;
+    }
+
+    #transcription {
+      width: 100%;
+      min-height: 400px;
+      padding: 20px;
+      border: 1px solid #dddddd;
+      border-radius: 10px;
+      resize: vertical;
+      font-family: Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.8;
+      background: #ffffff;
+      color: #252525;
+    }
+
+    .output-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #wordCount {
+      font-size: 12px;
+      color: #777;
+    }
+
+    .notice {
+      color: #777;
+      font-size: 12px;
+      line-height: 1.6;
+      margin-top: 15px;
+    }
+
+    .ba-footer {
+      text-align: center;
+      color: #888;
+      padding: 24px;
+      font-size: 12px;
+    }
+
+    @media (max-width: 600px) {
+      .workspace {
+        padding: 0 12px;
+      }
+
+      .ba-panel {
+        padding: 16px;
+      }
+
+      .navigation-item {
+        font-size: 13px;
+        padding: 14px 8px;
+      }
+
+      .button-row button {
+        flex: 1;
+      }
+    }
+  </style>
 </head>
+
 <body>
 
-    <nav class="navbar">
-        <div class="brand">Bhagya <span>Achievers</span></div>
-        <div class="nav-label">AI Workspace</div>
+  <header class="ba-header">
+    <div class="ba-header-inner">
+      <h1 class="brand">Bhagya Achievers</h1>
+
+      <div class="subtitle">
+        AI Transcription & Call Analysis Workspace
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+
+    <nav class="navigation">
+
+      <div class="navigation-item active-tab">
+        Audio Transcription
+      </div>
+
+      <div class="navigation-item inactive-tab"
+           aria-disabled="true">
+        Call Feedback
+
+        <span class="coming-soon">
+          COMING SOON
+        </span>
+      </div>
+
     </nav>
 
-    <main class="container">
+    <section class="ba-panel">
 
-        <header>
-            <span class="status-badge">LOCAL AI PROCESSING</span>
-            <h1>AI Audio <span>Transcription</span></h1>
-            <p>Transform your audio recordings into text effortlessly.</p>
+      <h2>Upload Call Recording</h2>
 
-            <div class="benefits">
-                <span>✓ Free Transcription</span>
-                <span>✓ Private Processing</span>
-                <span>✓ No Monthly Quota</span>
-            </div>
-        </header>
+      <div id="dropZone">
 
-        <section class="upload-card">
+        <div class="upload-icon">
+          &#127911;
+        </div>
 
-            <h2>Upload Audio Recording</h2>
+        <p>Drag and drop your recording here</p>
 
-            <label for="audioFile" class="upload-area" id="dropZone">
-                <span class="upload-icon">↑</span>
-                <strong>Drag and drop your audio file</strong>
-                <p>Supports MP3, MP4, WAV, M4A, OGG and FLAC</p>
-                <span class="browse-btn">Browse Audio File</span>
+        <label for="audioFile" class="file-label">
+          Choose Audio File
+        </label>
 
-                <input type="file" id="audioFile"
-                    accept="audio/*,video/mp4,.mp3,.mp4,.wav,.m4a,.ogg,.flac"
-                    hidden>
-            </label>
+        <input
+          type="file"
+          id="audioFile"
+          accept="audio/*,video/mp4,.mp3,.mp4,.wav,.m4a,.ogg,.flac,.aac,.webm"
+        >
 
-            <p id="fileName">No file selected</p>
+        <div class="file-formats">
+          MP3, MP4, WAV, M4A, OGG, FLAC, AAC, WEBM
+          <br>
+          Maximum file size: 90 MB
+        </div>
 
-            <audio id="audioPlayer" controls hidden></audio>
+      </div>
 
-            <div class="settings">
+      <div id="fileName">
+        No file selected
+      </div>
 
-                <div class="field">
-                    <label for="language">Audio Language</label>
-                    <select id="language">
-                        <option value="auto">Auto Detect</option>
-                        <option value="english">English</option>
-                        <option value="hindi">Hindi</option>
-                        <option value="punjabi">Punjabi</option>
-                    </select>
-                </div>
+      <audio id="audioPlayer" controls></audio>
 
-                <div class="field">
-                    <label for="model">Transcription Accuracy</label>
-                    <select id="model">
-                        <option value="tiny">Fast Processing</option>
-                        <option value="base" selected>Balanced</option>
-                        <option value="small">Higher Accuracy</option>
-                    </select>
-                </div>
+      <div class="engine-info">
 
-            </div>
+        <strong>AI Engine:</strong> Google Gemini
+        <br>
 
-            <button id="transcribeBtn" disabled>
-                Generate Transcription
-            </button>
+        <strong>Language:</strong> Automatic Detection
+        <br>
 
-            <button id="cancelBtn" hidden>
-                Cancel Processing
-            </button>
+        <strong>Output:</strong>
+        Speaker-wise transcription with timestamps
 
-            <div class="progress-section">
-                <progress id="progressBar" max="100" value="0"></progress>
-                <p id="statusText">Ready to transcribe</p>
-            </div>
+      </div>
 
-        </section>
+      <div class="notice">
+        Upload only recordings authorized for processing
+        by Google's Gemini API. Free-tier usage limits
+        and data handling conditions apply.
+      </div>
 
-        <section class="output-card">
+      <div class="button-row">
 
-            <div class="output-header">
-                <h2>Transcription Output</h2>
-                <span id="wordCount">0 words</span>
-            </div>
+        <button id="transcribeBtn" disabled>
+          Generate Transcription
+        </button>
 
-            <textarea id="transcription"
-                placeholder="Your generated transcription will appear here..."></textarea>
+        <button
+          id="cancelBtn"
+          class="secondary-btn"
+          disabled>
+          Cancel
+        </button>
 
-            <div class="actions">
-                <button id="copyBtn">Copy Text</button>
-                <button id="downloadBtn">Download TXT</button>
-                <button id="srtBtn">Download SRT</button>
-                <button id="clearBtn">Clear</button>
-            </div>
+      </div>
 
-        </section>
+      <div class="progress-track">
+        <div id="progressBar"></div>
+      </div>
 
-        <footer>
-            <strong>Bhagya Achievers AI Workspace</strong>
-            <p>Powered by Open-Source Artificial Intelligence</p>
-            <p>No API Charges | No Subscription | Private Processing</p>
-        </footer>
+      <div id="statusText" role="status" aria-live="polite">
+        Upload a recording to begin.
+      </div>
 
-    </main>
+    </section>
 
-    <script type="module" src="./app.js"></script>
+    <section class="ba-panel">
+
+      <div class="output-header">
+
+        <h2>Transcription Output</h2>
+
+        <span id="wordCount">0 words</span>
+
+      </div>
+
+      <textarea
+        id="transcription"
+        placeholder="Your speaker-wise transcription with timestamps will appear here..."
+      ></textarea>
+
+      <div class="button-row">
+
+        <button id="copyBtn" class="secondary-btn">
+          Copy Text
+        </button>
+
+        <button id="downloadBtn" class="secondary-btn">
+          Download TXT
+        </button>
+
+        <button id="srtBtn" class="secondary-btn">
+          Download Word
+        </button>
+
+        <button id="clearBtn" class="secondary-btn">
+          Clear
+        </button>
+
+      </div>
+
+      <div class="notice">
+        AI-generated transcription. Verify important
+        statements, speaker labels and timestamps
+        against the original recording.
+      </div>
+
+    </section>
+
+    <section class="ba-panel">
+
+      <h2>Call Feedback — Coming Soon</h2>
+
+      <p class="notice">
+        Future integration with Bhagya Achievers'
+        customized call evaluation system.
+        Feedback will be generated using the completed
+        transcription and approved evaluation guidelines.
+      </p>
+
+      <button class="secondary-btn" disabled>
+        Generate Call Feedback
+      </button>
+
+    </section>
+
+  </main>
+
+  <footer class="ba-footer">
+    Bhagya Achievers | Internal AI Workspace
+  </footer>
+
+  <script src="app.js?v=2" defer></script>
+
+  <script>
+    // Remove old offline caches from the Whisper version.
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations()
+        .then(registrations => {
+          registrations.forEach(registration => {
+            registration.unregister();
+          });
+        })
+        .catch(() => {});
+    }
+  </script>
 
 </body>
 </html>

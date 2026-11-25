@@ -1,0 +1,111 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0b1120">
+    <title>Echo AI - Audio Transcription</title>
+    <link rel="stylesheet" href="./style.css">
+    <link rel="manifest" href="./manifest.json">
+</head>
+<body>
+
+    <main class="container">
+
+        <header>
+            <div class="logo">ECHO AI</div>
+            <h1>Audio Transcription Agent</h1>
+            <p>Free. Private. No API charges.</p>
+            <span class="status-badge">
+                Local AI Processing
+            </span>
+        </header>
+
+        <section class="upload-card">
+
+            <h2>Upload Audio</h2>
+
+            <label for="audioFile" class="upload-area" id="dropZone">
+                <span class="upload-icon">&#9729;</span>
+                <strong>Choose or drop your audio file</strong>
+                <p>MP3, WAV, M4A, OGG and more</p>
+                <input type="file" id="audioFile"
+                       accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"
+                       hidden>
+            </label>
+
+            <p id="fileName">No file selected</p>
+
+            <audio id="audioPlayer" controls hidden></audio>
+
+            <div class="settings">
+
+                <div class="field">
+                    <label for="language">Audio Language</label>
+                    <select id="language">
+                        <option value="auto">Auto Detect</option>
+                        <option value="english">English</option>
+                        <option value="hindi">Hindi</option>
+                        <option value="punjabi">Punjabi</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="model">AI Model</label>
+                    <select id="model">
+                        <option value="tiny">Tiny - Faster</option>
+                        <option value="base" selected>Base - Balanced</option>
+                        <option value="small">Small - Higher Accuracy</option>
+                    </select>
+                </div>
+
+            </div>
+
+            <button id="transcribeBtn" disabled>
+                Generate Transcription
+            </button>
+
+            <button id="cancelBtn" hidden>
+                Cancel Processing
+            </button>
+
+            <div class="progress-section">
+                <progress id="progressBar" max="100" value="0"></progress>
+                <p id="statusText">Ready to transcribe</p>
+            </div>
+
+        </section>
+
+        <section class="output-card">
+
+            <div class="output-header">
+                <h2>Transcription Output</h2>
+                <span id="wordCount">0 words</span>
+            </div>
+
+            <textarea id="transcription"
+                placeholder="Your transcription will appear here...">
+            </textarea>
+
+            <div class="actions">
+                <button id="copyBtn">Copy Text</button>
+                <button id="downloadBtn">Download TXT</button>
+                <button id="srtBtn">Download SRT</button>
+                <button id="clearBtn">Clear</button>
+            </div>
+
+        </section>
+
+        <footer>
+            <p>Private processing on your device</p>
+            <p>No paid API | No monthly transcription quota</p>
+            <p>Powered by open-source Whisper AI</p>
+        </footer>
+
+    </main>
+
+    <script type="module" src="./app.js"></script>
+
+</body>
+</html>
